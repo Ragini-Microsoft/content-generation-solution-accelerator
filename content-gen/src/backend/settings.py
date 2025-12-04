@@ -70,6 +70,7 @@ class _AzureOpenAISettings(BaseSettings):
         env_ignore_empty=True,
     )
 
+    api_key: Optional[str] = Field(default=None, alias="AZURE_OPENAI_API_KEY")
     gpt_model: str = Field(default="gpt-5", alias="AZURE_OPENAI_GPT_MODEL")
     model: str = "gpt-5"
     dalle_model: str = Field(default="dall-e-3", alias="AZURE_OPENAI_DALLE_MODEL")

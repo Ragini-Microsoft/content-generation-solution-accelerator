@@ -191,14 +191,23 @@ class ContentGenerationOrchestrator:
             if not endpoint:
                 raise ValueError("AZURE_OPENAI_ENDPOINT is not configured")
             
-            # Use DefaultAzureCredential for RBAC authentication
-            logger.info("Using DefaultAzureCredential for Azure OpenAI")
-            self._chat_client = AzureOpenAIChatClient(
-                endpoint=endpoint,
-                deployment_name=app_settings.azure_openai.gpt_model,
-                api_version=app_settings.azure_openai.api_version,
-                credential=DefaultAzureCredential(),
-            )
+            api_key = app_settings.azure_openai.api_key
+            if api_key:
+                logger.info("Using API key for Azure OpenAI authentication")
+                self._chat_client = AzureOpenAIChatClient(
+                    endpoint=endpoint,
+                    deployment_name=app_settings.azure_openai.gpt_model,
+                    api_version=app_settings.azure_openai.api_version,
+                    api_key=api_key,
+                )
+            else:
+                logger.info("Using DefaultAzureCredential for Azure OpenAI")
+                self._chat_client = AzureOpenAIChatClient(
+                    endpoint=endpoint,
+                    deployment_name=app_settings.azure_openai.gpt_model,
+                    api_version=app_settings.azure_openai.api_version,
+                    credential=DefaultAzureCredential(),
+                )
         return self._chat_client
     
     def initialize(self) -> None:

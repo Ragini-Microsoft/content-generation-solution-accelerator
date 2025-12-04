@@ -4,29 +4,28 @@ import {
   Input,
   Textarea,
   Text,
-  Title3,
   tokens,
 } from '@fluentui/react-components';
 import {
-  Checkmark24Regular,
-  Dismiss24Regular,
-  Edit24Regular,
+  Checkmark20Regular,
+  Dismiss20Regular,
+  Edit20Regular,
 } from '@fluentui/react-icons';
 import type { CreativeBrief } from '../types';
 
-interface BriefConfirmationProps {
+interface BriefConfirmationMessageProps {
   brief: CreativeBrief;
   onConfirm: (brief: CreativeBrief) => void;
   onCancel: () => void;
   onEdit: (brief: CreativeBrief) => void;
 }
 
-export function BriefConfirmation({
+export function BriefConfirmationMessage({
   brief,
   onConfirm,
   onCancel,
   onEdit,
-}: BriefConfirmationProps) {
+}: BriefConfirmationMessageProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedBrief, setEditedBrief] = useState<CreativeBrief>(brief);
 
@@ -52,13 +51,14 @@ export function BriefConfirmation({
   ];
 
   return (
-    <div className="panel-card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <Title3>Confirm Creative Brief</Title3>
+    <div className="brief-confirmation-message">
+      <div className="brief-header">
+        <Text weight="semibold" size={400}>Creative Brief</Text>
         {!isEditing && (
           <Button
             appearance="subtle"
-            icon={<Edit24Regular />}
+            icon={<Edit20Regular />}
+            size="small"
             onClick={() => setIsEditing(true)}
           >
             Edit
@@ -66,14 +66,14 @@ export function BriefConfirmation({
         )}
       </div>
       
-      <Text size={200} style={{ color: tokens.colorNeutralForeground3, marginBottom: '16px' }}>
-        Please review the parsed brief and confirm or edit before proceeding.
+      <Text size={200} style={{ color: tokens.colorNeutralForeground3, marginBottom: '12px', display: 'block' }}>
+        Review and confirm before generating content.
       </Text>
       
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      <div className="brief-fields">
         {briefFields.map(({ key, label, multiline }) => (
-          <div key={key}>
-            <Text weight="semibold" size={200} style={{ marginBottom: '4px', display: 'block' }}>
+          <div key={key} className="brief-field">
+            <Text weight="semibold" size={200} className="field-label">
               {label}
             </Text>
             {isEditing ? (
@@ -82,12 +82,14 @@ export function BriefConfirmation({
                   value={editedBrief[key]}
                   onChange={(e) => handleFieldChange(key, e.target.value)}
                   resize="vertical"
+                  size="small"
                   style={{ width: '100%' }}
                 />
               ) : (
                 <Input
                   value={editedBrief[key]}
                   onChange={(e) => handleFieldChange(key, e.target.value)}
+                  size="small"
                   style={{ width: '100%' }}
                 />
               )
@@ -106,38 +108,42 @@ export function BriefConfirmation({
         ))}
       </div>
       
-      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+      <div className="brief-actions">
         {isEditing ? (
           <>
             <Button
               appearance="primary"
-              icon={<Checkmark24Regular />}
+              icon={<Checkmark20Regular />}
+              size="small"
               onClick={handleSaveEdit}
             >
               Save Changes
             </Button>
             <Button
               appearance="subtle"
+              size="small"
               onClick={() => {
                 setEditedBrief(brief);
                 setIsEditing(false);
               }}
             >
-              Cancel
+              Cancel Edit
             </Button>
           </>
         ) : (
           <>
             <Button
               appearance="primary"
-              icon={<Checkmark24Regular />}
+              icon={<Checkmark20Regular />}
+              size="small"
               onClick={() => onConfirm(brief)}
             >
-              Confirm Brief
+              Confirm & Generate
             </Button>
             <Button
               appearance="subtle"
-              icon={<Dismiss24Regular />}
+              icon={<Dismiss20Regular />}
+              size="small"
               onClick={onCancel}
             >
               Start Over
@@ -148,3 +154,6 @@ export function BriefConfirmation({
     </div>
   );
 }
+
+export default BriefConfirmationMessage;
+

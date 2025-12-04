@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import {
-  Card,
-  CardHeader,
   Button,
   Input,
   Text,
@@ -68,10 +66,8 @@ export function ProductSelector({
     selectedProducts.some(p => p.sku === product.sku);
 
   return (
-    <Card className="panel-card">
-      <CardHeader
-        header={<Title3>Select Products</Title3>}
-      />
+    <div className="panel-card">
+      <Title3 style={{ marginBottom: '8px' }}>Select Products</Title3>
       
       <Text size={200} style={{ color: tokens.colorNeutralForeground3, marginBottom: '16px' }}>
         Choose products to feature in your marketing content.
@@ -180,6 +176,6 @@ export function ProductSelector({
       >
         {isLoading ? 'Generating...' : 'Generate Content'}
       </Button>
-    </Card>
+    </div>
   );
 }

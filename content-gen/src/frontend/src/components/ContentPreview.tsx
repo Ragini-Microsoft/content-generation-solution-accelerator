@@ -1,6 +1,4 @@
 import {
-  Card,
-  CardHeader,
   Button,
   Text,
   Title3,
@@ -48,19 +46,17 @@ export function ContentPreview({ content, onRegenerate }: ContentPreviewProps) {
   };
 
   return (
-    <Card className="panel-card">
-      <CardHeader
-        header={<Title3>Generated Content</Title3>}
-        action={
-          <Button
-            appearance="subtle"
-            icon={<ArrowSync24Regular />}
-            onClick={onRegenerate}
-          >
-            Regenerate
-          </Button>
-        }
-      />
+    <div className="panel-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <Title3>Generated Content</Title3>
+        <Button
+          appearance="subtle"
+          icon={<ArrowSync24Regular />}
+          onClick={onRegenerate}
+        >
+          Regenerate
+        </Button>
+      </div>
       
       {/* Approval Status */}
       <div style={{ marginBottom: '16px' }}>
@@ -184,7 +180,7 @@ export function ContentPreview({ content, onRegenerate }: ContentPreviewProps) {
           )}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 

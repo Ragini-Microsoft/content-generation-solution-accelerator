@@ -1,13 +1,26 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { FluentProvider, webLightTheme } from '@fluentui/react-components';
-import App from './App';
-import './styles/global.css';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import { FluentProvider, teamsLightTheme, teamsDarkTheme } from "@fluentui/react-components";
+import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
+import "./styles/global.css";
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <FluentProvider theme={webLightTheme}>
+const root = ReactDOM.createRoot(document.getElementById("root") as HTMLElement);
+
+const ThemedApp = () => {
+  const { isDarkMode } = useTheme();
+
+  return (
+    <FluentProvider theme={isDarkMode ? teamsDarkTheme : teamsLightTheme} style={{ height: "100vh" }}>
       <App />
     </FluentProvider>
+  );
+};
+
+root.render(
+  <React.StrictMode>
+    <ThemeProvider>
+      <ThemedApp />
+    </ThemeProvider>
   </React.StrictMode>
 );

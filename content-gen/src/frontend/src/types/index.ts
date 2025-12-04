@@ -48,6 +48,17 @@ export interface ChatMessage {
   agent?: string;
   timestamp: string;
   violations?: ComplianceViolation[];
+  date?: string;
+  feedback?: string;
+  context?: any;
+  citations?: Citation[];
+  contentType?: string;
+}
+
+export interface Citation {
+  content: string;
+  url: string;
+  title: string;
 }
 
 export interface Conversation {
@@ -56,6 +67,15 @@ export interface Conversation {
   messages: ChatMessage[];
   brief?: CreativeBrief;
   updated_at: string;
+  title?: string;
+  date?: string;
+  updatedAt?: string;
+}
+
+export interface ConversationRequest {
+  messages: ChatMessage[];
+  id?: string;
+  last_rag_response?: string;
 }
 
 export interface AgentResponse {
@@ -105,4 +125,43 @@ export interface GeneratedContent {
   };
   violations: ComplianceViolation[];
   requires_modification: boolean;
+}
+
+export interface AppConfig {
+  name?: string;
+  description?: string;
+  features?: {
+    chatHistory?: boolean;
+    charts?: boolean;
+    search?: boolean;
+  };
+}
+
+export interface ChartConfigItem {
+  id: string;
+  title: string;
+  type: string;
+  data?: any;
+  options?: any;
+}
+
+export interface CosmosDBHealth {
+  cosmosDB: boolean;
+  status: CosmosDBStatus | string;
+}
+
+export enum CosmosDBStatus {
+  Working = "Working",
+  NotWorking = "NotWorking", 
+  NotConfigured = "NotConfigured",
+  InvalidCredentials = "InvalidCredentials"
+}
+
+export interface UserInfo {
+  access_token: string;
+  expires_on: string;
+  id_token: string;
+  provider_name: string;
+  user_claims: any[];
+  user_id: string;
 }

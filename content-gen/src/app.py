@@ -74,7 +74,7 @@ async def chat():
     # Try to save to CosmosDB but don't fail if it's unavailable
     try:
         cosmos_service = await get_cosmos_service()
-        await cosmos_service.add_message_to_conversation(
+        result = await cosmos_service.add_message_to_conversation(
             conversation_id=conversation_id,
             user_id=user_id,
             message={
@@ -83,6 +83,7 @@ async def chat():
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
         )
+        logger.info(f"Saved user message to conversation {conversation_id}: {len(result.get('messages', []))} total messages")
     except Exception as e:
         logger.warning(f"Failed to save message to CosmosDB: {e}")
     
@@ -186,10 +187,15 @@ async def confirm_brief():
     # Try to save the confirmed brief to CosmosDB, but don't fail if unavailable
     try:
         cosmos_service = await get_cosmos_service()
+        existing_conversation = await cosmos_service.get_conversation(conversation_id, user_id)
+        existing_messages = existing_conversation.get("messages", []) if existing_conversation else []
+        
+        logger.info(f"Saving brief for conversation {conversation_id}: {len(existing_messages)} existing messages")
+        
         await cosmos_service.save_conversation(
             conversation_id=conversation_id,
             user_id=user_id,
-            messages=[],
+            messages=existing_messages,
             brief=brief,
             metadata={"status": "brief_confirmed"}
         )
@@ -255,6 +261,28 @@ async def generate_content():
                     response["image_url"] = image_url
             except Exception as e:
                 logger.warning(f"Failed to save image to blob storage: {e}")
+            
+            # Save generated content to conversation metadata
+            if conversation_id:
+                try:
+                    user_id = data.get("user_id", "demo-user")
+                    cosmos_service = await get_cosmos_service()
+                    existing_conversation = await cosmos_service.get_conversation(conversation_id, user_id)
+                    if existing_conversation:
+                        existing_messages = existing_conversation.get("messages", [])
+                        existing_brief_data = existing_conversation.get("brief")
+                        existing_brief = CreativeBrief(**existing_brief_data) if existing_brief_data else None
+                        metadata = existing_conversation.get("metadata", {})
+                        metadata["generated_content"] = response
+                        await cosmos_service.save_conversation(
+                            conversation_id=conversation_id,
+                            user_id=user_id,
+                            messages=existing_messages,
+                            brief=existing_brief,
+                            metadata=metadata
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to save generated content to conversation: {e}")
             
             # Format response to match what frontend expects
             yield f"data: {json.dumps({'type': 'agent_response', 'content': json.dumps(response), 'is_final': True})}\n\n"
@@ -432,13 +460,19 @@ async def get_conversation(conversation_id: str):
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     
-    cosmos_service = await get_cosmos_service()
-    conversation = await cosmos_service.get_conversation(conversation_id, user_id)
-    
-    if not conversation:
-        return jsonify({"error": "Conversation not found"}), 404
-    
-    return jsonify(conversation)
+    try:
+        cosmos_service = await get_cosmos_service()
+        conversation = await cosmos_service.get_conversation(conversation_id, user_id)
+        
+        if not conversation:
+            logger.warning(f"Conversation not found: {conversation_id} for user {user_id}")
+            return jsonify({"error": "Conversation not found"}), 404
+        
+        logger.info(f"Retrieved conversation {conversation_id}: {len(conversation.get('messages', []))} messages")
+        return jsonify(conversation)
+    except Exception as e:
+        logger.exception(f"Error retrieving conversation {conversation_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # ==================== Brand Guidelines Endpoints ====================
