@@ -7,6 +7,8 @@ hypercorn>=0.17.0
 
 # Microsoft Agent Framework
 agent-framework>=1.0.0b251001
+# Azure AI Foundry support (optional - for USE_FOUNDRY=true mode)
+agent-framework-azure-ai>=1.0.0b251001
 
 # Azure SDKs
 azure-identity>=1.17.0

@@ -53,6 +53,48 @@ class _ChatHistorySettings(BaseSettings):
     enable_feedback: bool = True
 
 
+class _AzureFoundrySettings(BaseSettings):
+    """Azure AI Foundry configuration for project-based deployments.
+    
+    When USE_FOUNDRY=true, the application uses AzureAIClient from agent-framework
+    which connects to Azure AI Foundry projects instead of direct Azure OpenAI endpoints.
+    
+    Benefits of Foundry:
+    - Built-in image generation as agent tools
+    - Service-managed conversation threads
+    - Unified project endpoint for all models
+    - Simplified credential handling
+    """
+    model_config = SettingsConfigDict(
+        env_prefix="AZURE_FOUNDRY_",
+        env_file=DOTENV_PATH,
+        extra="ignore",
+        env_ignore_empty=True,
+    )
+    
+    # Feature flag to enable Foundry mode
+    use_foundry: bool = Field(default=False, alias="USE_FOUNDRY")
+    
+    # Azure AI Foundry project endpoint
+    # Format: https://<project>.services.ai.azure.com/api/projects/<project-name>
+    project_endpoint: Optional[str] = Field(default=None, alias="AZURE_AI_PROJECT_ENDPOINT")
+    
+    # Model deployment name in the Foundry project
+    model_deployment_name: Optional[str] = Field(default=None, alias="AZURE_AI_MODEL_DEPLOYMENT_NAME")
+    
+    # Image generation model deployment (for built-in image_generation tool)
+    image_model_deployment: str = Field(default="gpt-image-1-mini", alias="AZURE_AI_IMAGE_MODEL_DEPLOYMENT")
+    
+    # Image generation settings
+    image_quality: str = Field(default="low", alias="AZURE_AI_IMAGE_QUALITY")  # low, medium, high
+    image_size: str = Field(default="1024x1024", alias="AZURE_AI_IMAGE_SIZE")  # 1024x1024, 1536x1024, 1024x1536
+    
+    @property
+    def is_configured(self) -> bool:
+        """Check if Foundry is properly configured."""
+        return bool(self.use_foundry and self.project_endpoint and self.model_deployment_name)
+
+
 class _AzureOpenAISettings(BaseSettings):
     """Azure OpenAI configuration for GPT and image generation models."""
     model_config = SettingsConfigDict(
@@ -388,6 +430,7 @@ class _AppSettings(BaseModel):
     """Main application settings container."""
     base_settings: _BaseSettings = _BaseSettings()
     azure_openai: _AzureOpenAISettings = _AzureOpenAISettings()
+    azure_foundry: _AzureFoundrySettings = _AzureFoundrySettings()
     brand_guidelines: _BrandGuidelinesSettings = _BrandGuidelinesSettings()
     ui: Optional[_UiSettings] = _UiSettings()
     

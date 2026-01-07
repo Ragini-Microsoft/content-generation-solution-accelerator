@@ -18,7 +18,7 @@ Agents can hand off to each other dynamically based on context.
 import json
 import logging
 import re
-from typing import Any, AsyncIterator, Optional, cast
+from typing import Any, AsyncIterator, Optional, Union, cast, TYPE_CHECKING
 
 # Token endpoint for Azure Cognitive Services (used for Azure OpenAI)
 TOKEN_ENDPOINT = "https://cognitiveservices.azure.com/.default"
@@ -36,6 +36,23 @@ from agent_framework import (
 )
 from agent_framework.azure import AzureOpenAIChatClient
 from azure.identity import DefaultAzureCredential
+
+# Foundry client imports - try to import, gracefully degrade if not available
+try:
+    from agent_framework.azure import AzureAIClient as _AzureAIClient
+    from azure.identity.aio import DefaultAzureCredential as AsyncDefaultAzureCredential
+    FOUNDRY_AVAILABLE = True
+except ImportError:
+    _AzureAIClient = None  # type: ignore
+    AsyncDefaultAzureCredential = None  # type: ignore
+    FOUNDRY_AVAILABLE = False
+
+# Type alias for chat client - supports both modes
+if TYPE_CHECKING:
+    from agent_framework.azure import AzureAIClient
+    ChatClientType = Union[AzureOpenAIChatClient, AzureAIClient]
+else:
+    ChatClientType = Any
 
 from models import (
     CreativeBrief,
@@ -267,6 +284,15 @@ class ContentGenerationOrchestrator:
     Orchestrates the multi-agent content generation workflow using
     Microsoft Agent Framework's HandoffBuilder.
     
+    Supports two modes:
+    1. Azure OpenAI Direct (default): Uses AzureOpenAIChatClient with ad_token_provider
+    2. Azure AI Foundry: Uses AzureAIClient with project endpoint (set USE_FOUNDRY=true)
+    
+    Foundry mode benefits:
+    - Built-in image generation as agent tools
+    - Service-managed conversation threads
+    - Unified project endpoint
+    
     Agents:
     - Triage (coordinator) - routes requests to specialists
     - Planning (brief interpretation)
@@ -277,43 +303,269 @@ class ContentGenerationOrchestrator:
     """
     
     def __init__(self):
-        self._chat_client: Optional[AzureOpenAIChatClient] = None
+        self._chat_client: Optional[ChatClientType] = None
         self._agents: dict = {}
         self._workflow = None
         self._initialized = False
+        self._use_foundry = app_settings.azure_foundry.is_configured
+        self._async_credential: Any = None  # For Foundry mode
     
-    def _get_chat_client(self) -> AzureOpenAIChatClient:
-        """Get or create the Azure OpenAI chat client."""
+    def _get_chat_client(self) -> ChatClientType:
+        """Get or create the Azure OpenAI or Foundry chat client.
+        
+        Returns:
+            AzureOpenAIChatClient if using direct Azure OpenAI mode, or
+            AzureAIClient if using Azure AI Foundry mode (USE_FOUNDRY=true).
+        
+        Foundry mode:
+            - Requires agent-framework-azure-ai package
+            - Uses async DefaultAzureCredential
+            - Connects via project endpoint (AZURE_AI_PROJECT_ENDPOINT)
+            - Supports built-in image_generation tool
+        
+        Direct mode (default):
+            - Uses ad_token_provider for automatic token refresh
+            - Connects directly to Azure OpenAI endpoint
+            - Image generation via separate DALL-E calls
+        """
         if self._chat_client is None:
-            endpoint = app_settings.azure_openai.endpoint
-            if not endpoint:
-                raise ValueError("AZURE_OPENAI_ENDPOINT is not configured")
-            
-            # Use ad_token_provider for automatic token refresh
-            # This ensures tokens are refreshed automatically when they expire,
-            # avoiding 401 errors that require container restarts
-            credential = DefaultAzureCredential()
-            
-            def get_token() -> str:
-                """Token provider callable - invoked for each request to ensure fresh tokens."""
-                token = credential.get_token(TOKEN_ENDPOINT)
-                return token.token
-            
-            logger.info("Using DefaultAzureCredential with ad_token_provider for Azure OpenAI")
-            self._chat_client = AzureOpenAIChatClient(
-                endpoint=endpoint,
-                deployment_name=app_settings.azure_openai.gpt_model,
-                api_version=app_settings.azure_openai.api_version,
-                ad_token_provider=get_token,
-            )
+            if self._use_foundry:
+                self._chat_client = self._create_foundry_client()
+            else:
+                self._chat_client = self._create_openai_client()
         return self._chat_client
+    
+    def _create_openai_client(self) -> AzureOpenAIChatClient:
+        """Create Azure OpenAI direct client with ad_token_provider for auto-refresh."""
+        endpoint = app_settings.azure_openai.endpoint
+        if not endpoint:
+            raise ValueError("AZURE_OPENAI_ENDPOINT is not configured")
+        
+        # Use ad_token_provider for automatic token refresh
+        # This ensures tokens are refreshed automatically when they expire,
+        # avoiding 401 errors that require container restarts
+        credential = DefaultAzureCredential()
+        
+        def get_token() -> str:
+            """Token provider callable - invoked for each request to ensure fresh tokens."""
+            token = credential.get_token(TOKEN_ENDPOINT)
+            return token.token
+        
+        logger.info("Using DefaultAzureCredential with ad_token_provider for Azure OpenAI")
+        return AzureOpenAIChatClient(
+            endpoint=endpoint,
+            deployment_name=app_settings.azure_openai.gpt_model,
+            api_version=app_settings.azure_openai.api_version,
+            ad_token_provider=get_token,
+        )
+    
+    def _create_foundry_client(self) -> Any:
+        """Create Azure AI Foundry client for project-based deployments.
+        
+        Foundry mode enables:
+        - Built-in image generation via tools parameter
+        - Service-managed conversation threads
+        - Unified project endpoint for all operations
+        
+        Requires:
+        - agent-framework-azure-ai package installed
+        - AZURE_AI_PROJECT_ENDPOINT set
+        - AZURE_AI_MODEL_DEPLOYMENT_NAME set
+        - USE_FOUNDRY=true
+        """
+        if not FOUNDRY_AVAILABLE:
+            raise ImportError(
+                "Azure AI Foundry support requires agent-framework-azure-ai package. "
+                "Install with: pip install agent-framework-azure-ai"
+            )
+        
+        foundry = app_settings.azure_foundry
+        if not foundry.project_endpoint:
+            raise ValueError("AZURE_AI_PROJECT_ENDPOINT is not configured")
+        if not foundry.model_deployment_name:
+            raise ValueError("AZURE_AI_MODEL_DEPLOYMENT_NAME is not configured")
+        
+        # Create async credential - will be managed by the client context manager
+        self._async_credential = AsyncDefaultAzureCredential()  # type: ignore[misc]
+        
+        logger.info(
+            f"Using Azure AI Foundry client with project: {foundry.project_endpoint}, "
+            f"model: {foundry.model_deployment_name}"
+        )
+        
+        return _AzureAIClient(  # type: ignore[misc]
+            project_endpoint=foundry.project_endpoint,
+            model_deployment_name=foundry.model_deployment_name,
+            credential=self._async_credential,
+        )
+    
+    def _get_image_generation_tools(self) -> list[dict]:
+        """Get image generation tools configuration for Foundry mode.
+        
+        In Foundry mode, image generation is a built-in tool on the agent
+        rather than a separate DALL-E API call.
+        """
+        if not self._use_foundry:
+            return []
+        
+        foundry = app_settings.azure_foundry
+        return [
+            {
+                "type": "image_generation",
+                "model": foundry.image_model_deployment,
+                "quality": foundry.image_quality,
+                "size": foundry.image_size,
+            }
+        ]
+    
+    async def _extract_foundry_image(self, image_response: Any, results: dict) -> None:
+        """Extract image from Foundry agent response (built-in image_generation tool).
+        
+        In Foundry mode, the agent's response includes DataContent with the generated image.
+        This method extracts the image data and saves it to blob storage.
+        
+        Args:
+            image_response: The agent response containing image data
+            results: The results dict to update with image info
+        """
+        try:
+            from agent_framework import DataContent
+            
+            # The image response may contain DataContent objects with image data
+            image_data = None
+            
+            # Check if response has messages attribute (ChatResponse)
+            if hasattr(image_response, 'messages'):
+                for msg in image_response.messages:
+                    if hasattr(msg, 'contents'):
+                        for content in msg.contents:
+                            if isinstance(content, DataContent) and content.media_type and 'image' in content.media_type:
+                                # Get the base64 data
+                                image_data = content.get_data_bytes()
+                                break
+                    if image_data:
+                        break
+            
+            if image_data:
+                import base64
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+                logger.info(f"Extracted Foundry-generated image ({len(image_base64)} bytes)")
+                
+                # Save to blob storage
+                await self._save_image_to_blob(image_base64, results)
+            else:
+                logger.warning("No image data found in Foundry agent response")
+                results["image_error"] = "No image data in agent response"
+                
+        except ImportError:
+            logger.warning("DataContent not available, falling back to text extraction")
+            results["image_error"] = "Foundry image extraction requires agent-framework DataContent"
+        except Exception as e:
+            logger.exception(f"Error extracting Foundry image: {e}")
+            results["image_error"] = str(e)
+    
+    async def _generate_direct_image(
+        self,
+        image_response: Any,
+        results: dict,
+        product_context: str,
+        detailed_image_context: str,
+        brief: "CreativeBrief"
+    ) -> None:
+        """Generate image via direct DALL-E API call (non-Foundry mode).
+        
+        Args:
+            image_response: The image agent's prompt response
+            results: The results dict to update with image info
+            product_context: Product descriptions for context
+            detailed_image_context: Detailed image descriptions
+            brief: The creative brief
+        """
+        try:
+            from agents.image_content_agent import generate_dalle_image
+            
+            # Try to extract a clean prompt from the agent response
+            prompt_text = str(image_response)
+            
+            # If response is JSON, extract the prompt field
+            if '{' in prompt_text:
+                try:
+                    prompt_data = json.loads(prompt_text)
+                    if isinstance(prompt_data, dict):
+                        prompt_text = prompt_data.get('prompt', prompt_data.get('image_prompt', prompt_text))
+                except json.JSONDecodeError:
+                    # Try to extract JSON from markdown code blocks
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', prompt_text, re.DOTALL)
+                    if json_match:
+                        try:
+                            prompt_data = json.loads(json_match.group(1))
+                            prompt_text = prompt_data.get('prompt', prompt_data.get('image_prompt', prompt_text))
+                        except:
+                            pass
+            
+            # Build product description for DALL-E context
+            product_description = detailed_image_context if detailed_image_context else product_context
+            
+            # Generate the actual image using DALL-E
+            logger.info(f"Generating DALL-E image with prompt: {prompt_text[:200]}...")
+            image_result = await generate_dalle_image(
+                prompt=prompt_text,
+                product_description=product_description,
+                scene_description=brief.visual_guidelines
+            )
+            
+            if image_result.get("success"):
+                image_base64 = image_result.get("image_base64")
+                results["image_revised_prompt"] = image_result.get("revised_prompt")
+                logger.info("DALL-E image generated successfully")
+                
+                # Save to blob storage
+                await self._save_image_to_blob(image_base64, results)
+            else:
+                logger.warning(f"DALL-E image generation failed: {image_result.get('error')}")
+                results["image_error"] = image_result.get("error")
+                
+        except Exception as img_error:
+            logger.exception(f"Error generating DALL-E image: {img_error}")
+            results["image_error"] = str(img_error)
+    
+    async def _save_image_to_blob(self, image_base64: str, results: dict) -> None:
+        """Save generated image to blob storage.
+        
+        Args:
+            image_base64: Base64-encoded image data
+            results: The results dict to update with blob URL or base64 fallback
+        """
+        try:
+            from services.blob_service import BlobStorageService
+            from datetime import datetime
+            
+            blob_service = BlobStorageService()
+            gen_id = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            logger.info(f"Saving image to blob storage (size: {len(image_base64)} bytes)...")
+            
+            blob_url = await blob_service.save_generated_image(
+                conversation_id=f"gen_{gen_id}",
+                image_base64=image_base64
+            )
+            
+            if blob_url:
+                results["image_blob_url"] = blob_url
+                logger.info(f"Image saved to blob: {blob_url}")
+            else:
+                results["image_base64"] = image_base64
+                logger.warning("Blob save returned None, falling back to base64")
+        except Exception as blob_error:
+            logger.warning(f"Failed to save to blob, falling back to base64: {blob_error}")
+            results["image_base64"] = image_base64
     
     def initialize(self) -> None:
         """Initialize all agents and build the handoff workflow."""
         if self._initialized:
             return
         
-        logger.info("Initializing Content Generation Orchestrator with Agent Framework...")
+        mode_str = "Azure AI Foundry" if self._use_foundry else "Azure OpenAI Direct"
+        logger.info(f"Initializing Content Generation Orchestrator ({mode_str} mode)...")
         
         # Get the chat client
         chat_client = self._get_chat_client()
@@ -339,10 +591,21 @@ class ContentGenerationOrchestrator:
             instructions=TEXT_CONTENT_INSTRUCTIONS,
         )
         
-        image_content_agent = chat_client.create_agent(
-            name="image_content_agent",
-            instructions=IMAGE_CONTENT_INSTRUCTIONS,
-        )
+        # Image content agent - with built-in image generation tools in Foundry mode
+        image_tools = self._get_image_generation_tools()
+        if image_tools:
+            logger.info(f"Creating image_content_agent with built-in image generation tools: {image_tools}")
+            image_content_agent = chat_client.create_agent(
+                name="image_content_agent",
+                instructions=IMAGE_CONTENT_INSTRUCTIONS,
+                tools=image_tools,
+            )
+        else:
+            # Direct mode - image generation handled by separate DALL-E calls
+            image_content_agent = chat_client.create_agent(
+                name="image_content_agent",
+                instructions=IMAGE_CONTENT_INSTRUCTIONS,
+            )
         
         compliance_agent = chat_client.create_agent(
             name="compliance_agent",
@@ -916,81 +1179,14 @@ Use the detailed visual descriptions above to ensure accurate color reproduction
                 image_response = await self._agents["image_content"].run(image_request)
                 results["image_prompt"] = str(image_response)
                 
-                # Extract clean prompt from the response and generate actual image
-                try:
-                    from agents.image_content_agent import generate_dalle_image
-                    
-                    # Try to extract a clean prompt from the agent response
-                    prompt_text = str(image_response)
-                    
-                    # If response is JSON, extract the prompt field
-                    if '{' in prompt_text:
-                        try:
-                            prompt_data = json.loads(prompt_text)
-                            if isinstance(prompt_data, dict):
-                                prompt_text = prompt_data.get('prompt', prompt_data.get('image_prompt', prompt_text))
-                        except json.JSONDecodeError:
-                            # Try to extract JSON from markdown code blocks
-                            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', prompt_text, re.DOTALL)
-                            if json_match:
-                                try:
-                                    prompt_data = json.loads(json_match.group(1))
-                                    prompt_text = prompt_data.get('prompt', prompt_data.get('image_prompt', prompt_text))
-                                except:
-                                    pass
-                    
-                    # Build product description for DALL-E context
-                    # Include detailed image descriptions if available for better color accuracy
-                    product_description = detailed_image_context if detailed_image_context else product_context
-                    
-                    # Generate the actual image using DALL-E
-                    logger.info(f"Generating DALL-E image with prompt: {prompt_text[:200]}...")
-                    image_result = await generate_dalle_image(
-                        prompt=prompt_text,
-                        product_description=product_description,
-                        scene_description=brief.visual_guidelines
-                    )
-                    
-                    if image_result.get("success"):
-                        image_base64 = image_result.get("image_base64")
-                        results["image_revised_prompt"] = image_result.get("revised_prompt")
-                        logger.info("DALL-E image generated successfully")
-                        
-                        # Save to blob storage immediately to avoid returning huge base64
-                        # This prevents timeout issues with large responses
-                        try:
-                            from services.blob_service import BlobStorageService
-                            import os
-                            from datetime import datetime
-                            
-                            blob_service = BlobStorageService()
-                            # Generate a unique conversation-like ID for this generation
-                            gen_id = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-                            logger.info(f"Saving image to blob storage (size: {len(image_base64)} bytes)...")
-                            
-                            blob_url = await blob_service.save_generated_image(
-                                conversation_id=f"gen_{gen_id}",
-                                image_base64=image_base64
-                            )
-                            
-                            if blob_url:
-                                # Store the blob URL - will be converted to proxy URL by app.py
-                                results["image_blob_url"] = blob_url
-                                logger.info(f"Image saved to blob: {blob_url}")
-                            else:
-                                # Fallback to base64 if blob save fails
-                                results["image_base64"] = image_base64
-                                logger.warning("Blob save returned None, falling back to base64")
-                        except Exception as blob_error:
-                            logger.warning(f"Failed to save to blob, falling back to base64: {blob_error}")
-                            results["image_base64"] = image_base64
-                    else:
-                        logger.warning(f"DALL-E image generation failed: {image_result.get('error')}")
-                        results["image_error"] = image_result.get("error")
-                        
-                except Exception as img_error:
-                    logger.exception(f"Error generating DALL-E image: {img_error}")
-                    results["image_error"] = str(img_error)
+                # Handle image generation based on mode
+                if self._use_foundry:
+                    # Foundry mode: image is generated by the agent's built-in tool
+                    # Extract image data from the response
+                    await self._extract_foundry_image(image_response, results)
+                else:
+                    # Direct mode: generate image via separate DALL-E call
+                    await self._generate_direct_image(image_response, results, product_context, detailed_image_context, brief)
             
             # Run compliance check
             compliance_request = f"""
