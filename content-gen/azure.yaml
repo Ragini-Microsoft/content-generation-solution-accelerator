@@ -46,6 +46,11 @@ infra:
   path: ./infra
   module: main
 
+workflows:
+  up:
+    steps:
+      - azd: provision
+
 hooks:
   postprovision:
     windows:
