@@ -1,4 +1,4 @@
-# Azure Developer CLI (azd) Deployment Guide 
+# Azure Developer CLI (azd) Deployment Guide
 
 This guide covers deploying the Content Generation Solution Accelerator using Azure Developer CLI (`azd`).
 
