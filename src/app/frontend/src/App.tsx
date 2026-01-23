@@ -283,6 +283,7 @@ function App() {
         // Check if this looks like a creative brief
         const briefKeywords = ['campaign', 'marketing', 'target audience', 'objective', 'deliverable'];
         const isBriefLike = briefKeywords.some(kw => content.toLowerCase().includes(kw));
+        let a = 'string'
         
         if (isBriefLike && !confirmedBrief) {
           // Parse as a creative brief
